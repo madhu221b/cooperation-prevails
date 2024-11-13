@@ -12,7 +12,7 @@ Undirected Regular Graph (input) -> HoSW (output)
 import numpy as np
 import networkx as nx
 
-from utils.common_utils import set_seed
+from utils.common_utils import set_seed, read_pickle, save_pickle
 
 
 def _get_degree(g):
@@ -48,6 +48,12 @@ def _generate_graph(N, z):
     
     
     """
+    path = "./data/init_graphs/_N_{}_z_{}.gpickle".format(N,z)
+    g_obj = read_pickle(path)
+    if g_obj is not None: 
+        print("Reading initial  graph from path: {}".format(path))
+        return g_obj
+    
     seed = 42
     f = 1 # Setting this intutively
     set_seed(seed)
@@ -84,7 +90,8 @@ def _generate_graph(N, z):
 
     # Assign 50-50% Cooperators and Defectors
     g = _set_strategy_randomly(g, per_c=0.5)
+    print("Saving graph at {}".format(path))
+    save_pickle(g, path)
+
     return g
 
-
-g = _generate_graph(1000,40)

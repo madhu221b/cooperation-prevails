@@ -15,23 +15,23 @@ P = 1
 gap = 0.1
 
 SNOWDRIFT_DICT = {
-    "T": np.arange(1, 2+gap, gap),
-    "S": np.arange(0, 1+gap, gap)
+    "T": [np.round(_,2) for _ in  np.arange(1, 2+gap, gap)],
+    "S": [np.round(_,2) for _ in np.arange(0, 1+gap, gap)]
 }
 
 STAGHUNT_DICT = {
-    "T": np.arange(0, 1+gap, gap),
-    "S": np.arange(0, -1-gap, -gap)
+    "T": [np.round(_,2) for _ in np.arange(0, 1+gap, gap)],
+    "S": [np.round(_,2) for _ in np.arange(0, -1-gap, -gap)]
 }
 
 PRISONERS_DILEMMA_DICT = {
-    "T": np.arange(1, 2+gap, gap),
-    "S": np.arange(0, -1-gap, -gap)
+    "T": [ np.round(_,2) for _ in np.arange(1, 2+gap, gap)],
+    "S": [np.round(_,2) for _ in np.arange(0, -1-gap, -gap)]
 }
 
 GAME_DICT = {
-   "snowdrift": SNOWDRIFT_DICT,
-   "staghunt": STAGHUNT_DICT,
+   "sg": SNOWDRIFT_DICT,
+   "sh": STAGHUNT_DICT,
    "pd": PRISONERS_DILEMMA_DICT
     
 }
