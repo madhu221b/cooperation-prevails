@@ -19,6 +19,22 @@ def _get_degree(g):
     "Get degree of the graph"
     return sum([d for (n, d) in nx.degree(g)]) / float(g.number_of_nodes())
 
+def _set_strategy_randomly(g, per_c=0.5):
+    """
+    Setting attribute 1 for cooperators and 0 for defectors
+    """
+    N = g.number_of_nodes()
+    prop_c = int(N*per_c)
+    prop_d = N - prop_c
+    array = [1] * (prop_c) + [0] * (prop_d)
+    np.random.shuffle(array)
+    print("Setting {} cooperators and {} defectors for {} nodes randomly".format(prop_c, prop_d, N))
+    idxs = range(N)
+    node_dict = dict(zip(idxs, array))
+    nx.set_node_attributes(g, node_dict, name="strategy")
+    return g
+    
+
 def _generate_graph(N, z):
     """
     N : number of nodes
@@ -65,6 +81,9 @@ def _generate_graph(N, z):
     print("HoSW graph has N : {}, E: {}, avg degree: {}".format(g.number_of_nodes(), g.number_of_edges(),_get_degree(g)))
     final_edges = set(list(g.edges()))
     assert init_edges != final_edges, "Regular Random Graph and HoSW have the same edges"
+
+    # Assign 50-50% Cooperators and Defectors
+    g = _set_strategy_randomly(g, per_c=0.5)
     return g
 
 
