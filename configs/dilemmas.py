@@ -9,7 +9,7 @@ import numpy as np
 R = 1
 
 # Mutual Defection 
-P = 1
+P = 0
 
 # The Gap of 0.1 is known from paper - Evolutionary Dynamics of Social Dilemmas in Structured Heterogeneous Populations
 gap = 0.1
