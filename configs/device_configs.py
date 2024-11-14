@@ -1,6 +1,6 @@
 import torch
 
-USE_MPS = True
+USE_MPS = False
 USE_CUDA = False
 
 if USE_MPS:

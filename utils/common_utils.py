@@ -2,6 +2,8 @@ import random
 import os
 import pickle
 import numpy as np
+import pandas as pd
+import csv
 
 def set_seed(seed):
     np.random.seed(seed)
@@ -29,3 +31,12 @@ def read_pickle(fn):
     except Exception as ex:
         print(ex)
     return obj
+
+def write_csv(filename, content, mode="a"):
+    with open(filename, mode) as f:
+            writer = csv.writer(f)
+            writer.writerow(content)
+
+def read_csv(filename):
+    df = pd.read_csv(filename)
+    return df
