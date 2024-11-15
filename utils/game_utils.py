@@ -16,10 +16,7 @@ def _is_reach_convergence(node_attrs):
     return (cooperators == node_attrs.size(0) or cooperators == 0, float(cooperators/node_attrs.size(0)))
 
 def _get_init_graph(N, z, seed):
-
-    print("Fetching Initial Graph of N:{}, z:{} and seed: {}".format(N,z,seed))
     g = _generate_graph(N, z, seed)
-     
     # get tensor of node attributes
     node_attrs = nx.get_node_attributes(g, "strategy")
     node_tensors = torch.zeros(g.number_of_nodes())
@@ -32,7 +29,7 @@ def _get_init_graph(N, z, seed):
 
     node_tensors = node_tensors.to(device)
     adj_matrix = adj_matrix.to(device)
-    return node_tensors, adj_matrix, g
+    return node_tensors, adj_matrix
 
 def _get_pr_of_strategy_update(W):
     return 1/(1+W)
