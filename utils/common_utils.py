@@ -5,6 +5,10 @@ import numpy as np
 import pandas as pd
 import csv
 
+import logging
+logging.basicConfig(format='%(asctime)s:%(levelname)s:%(message)s', level=logging.DEBUG)
+
+
 def set_seed(seed):
     np.random.seed(seed)
     random.seed(seed)
@@ -33,9 +37,13 @@ def read_pickle(fn):
     return obj
 
 def write_csv(filename, content, mode="a"):
+    logging.info("[{}] Writing to csv: {} ".format(os.environ["SLURMD_NODENAME"],filename))
     with open(filename, mode) as f:
             writer = csv.writer(f)
-            writer.writerow(content)
+            if mode == "a":
+               writer.writerow(content)
+            else:
+                writer.writerow(content)
 
 def read_csv(filename):
     df = pd.read_csv(filename)

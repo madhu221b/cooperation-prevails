@@ -1,0 +1,27 @@
+#!/bin/sh
+#SBATCH --nodes=16
+#SBATCH --ntasks-per-node=1
+#SBATCH --partition=defq
+#SBATCH --time=24:00:00
+#SBATCH --job-name=RunSims
+#SBATCH --output=slurm_output_%A%N.out
+#SBATCH --constraint=cpunode
+
+
+srun -n1 -N1 /var/scratch/mmpawar/anaconda3/envs/lr_env/bin/python main_2.py  --game sg --chunk 0 &
+srun  -n1 -N1   /var/scratch/mmpawar/anaconda3/envs/lr_env/bin/python main_2.py --game sg --chunk 1 &
+srun  -n1 -N1   /var/scratch/mmpawar/anaconda3/envs/lr_env/bin/python main_2.py --game sg --chunk 2 &
+srun  -n1 -N1   /var/scratch/mmpawar/anaconda3/envs/lr_env/bin/python main_2.py --game sg --chunk 3 &
+srun -n1 -N1 /var/scratch/mmpawar/anaconda3/envs/lr_env/bin/python main_2.py  --game sg --chunk 4 &
+srun  -n1 -N1   /var/scratch/mmpawar/anaconda3/envs/lr_env/bin/python main_2.py --game sg --chunk 5 &
+srun  -n1 -N1   /var/scratch/mmpawar/anaconda3/envs/lr_env/bin/python main_2.py --game sg --chunk 6 &
+srun  -n1 -N1   /var/scratch/mmpawar/anaconda3/envs/lr_env/bin/python main_2.py --game sg --chunk 7 &
+srun -n1 -N1 /var/scratch/mmpawar/anaconda3/envs/lr_env/bin/python main_2.py  --game sg --chunk 8 &
+srun  -n1 -N1   /var/scratch/mmpawar/anaconda3/envs/lr_env/bin/python main_2.py --game sg --chunk 9 &
+srun  -n1 -N1   /var/scratch/mmpawar/anaconda3/envs/lr_env/bin/python main_2.py --game sg --chunk 10 &
+srun  -n1 -N1   /var/scratch/mmpawar/anaconda3/envs/lr_env/bin/python main_2.py --game sg --chunk 11 &
+srun -n1 -N1 /var/scratch/mmpawar/anaconda3/envs/lr_env/bin/python main_2.py  --game sg --chunk 12 &
+srun  -n1 -N1   /var/scratch/mmpawar/anaconda3/envs/lr_env/bin/python main_2.py --game sg --chunk 13 &
+srun  -n1 -N1   /var/scratch/mmpawar/anaconda3/envs/lr_env/bin/python main_2.py --game sg --chunk 14 &
+srun  -n1 -N1   /var/scratch/mmpawar/anaconda3/envs/lr_env/bin/python main_2.py --game sg --chunk 15 &
+wait

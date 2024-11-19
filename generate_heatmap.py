@@ -10,7 +10,7 @@ from configs.game_configs import __N_INDEPENDENT_SIMULATIONS_
 plot_directory = "./plots/"
 
 def generate_heatmap(W, N, z):
-    games = ["sh","sg"]
+    games = ["sh","sg","pd","other"]
     T_range = [np.round(_,2) for _ in np.arange(0, 2+gap, gap)]
     S_range = [np.round(_,2) for _ in np.arange(-1, 1+gap, gap)]
     T_dict = {val:i for i, val in enumerate(T_range)}
@@ -24,7 +24,9 @@ def generate_heatmap(W, N, z):
     
 
     for game in games:
+        configs = 0
         folder_name = "./data/lr_rewiring/game_{}/W_{}_N_{}_z_{}_betae_0.005_betaa_0.005".format(game,float(W),N,z)
+        if not os.path.exists(folder_name): continue
         for file_name in os.listdir(folder_name):
             csv_file = os.path.join(folder_name,file_name)
             try:
@@ -37,6 +39,8 @@ def generate_heatmap(W, N, z):
                 row_idx, col_idx = S_dict[S], T_dict[T]
                 avg_val = df["coop_frac"].mean()
                 heatmap[row_idx][col_idx] = avg_val
+                configs += 1
+        print("Game : {} , configs : {}".format(game,configs))
                 
                 
 
@@ -54,7 +58,7 @@ def generate_heatmap(W, N, z):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("--W", help="Timescale", type=int, default=0)
+    parser.add_argument("--W", help="Timescale", type=float, default=0)
     parser.add_argument("--N", help="Number of nodes", type=int, default=1000)
     parser.add_argument("--z", help="Avg. degree", type=int, default=30)
   
