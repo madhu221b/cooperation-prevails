@@ -37,7 +37,7 @@ def read_pickle(fn):
     return obj
 
 def write_csv(filename, content, mode="a"):
-    logging.info("[{}] Writing to csv: {} ".format(os.environ["SLURMD_NODENAME"],filename))
+    logging.info("[{}] Writing to csv: {} ".format(os.environ.get("SLURMD_NODENAME","") ,filename))
     with open(filename, mode) as f:
             writer = csv.writer(f)
             if mode == "a":

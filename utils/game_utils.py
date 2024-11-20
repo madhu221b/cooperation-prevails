@@ -49,16 +49,32 @@ def _get_payoff_of_node(a, ngh_a, node_attrs, payoff_matrix):
     vals = payoff_matrix[node_id.int(), node_id_nghs.int()]
     return torch.sum(vals)
 
+def _get_payoff_of_nodes(nodes,nghs,node_attrs, payoff_matrix): 
+    payoffs = list()
+    for node, ngh in zip(nodes, nghs):
+        node_id = node_attrs[node]
+        node_id_nghs = node_attrs[ngh]
+        vals = payoff_matrix[node_id.int(), node_id_nghs.int()]
+        payoffs.append(torch.sum(vals))
+    return payoffs
+
+# def _get_pr_of_strategy_replacement(pi_a, pi_b, beta):
+#     pi_a, pi_b = pi_a.cpu().numpy(), pi_b.cpu().numpy()
+#     power = -beta*(pi_b-pi_a)
+#     return 1/(1+np.exp(power))
+
+# def _get_pr_of_adjust_ties(pi_a, pi_b, beta):
+#     pi_a, pi_b = pi_a.cpu().numpy(), pi_b.cpu().numpy()
+#     power = -beta*(pi_a-pi_b)
+#     return 1/(1+np.exp(power))
+
 def _get_pr_of_strategy_replacement(pi_a, pi_b, beta):
-    pi_a, pi_b = pi_a.cpu().numpy(), pi_b.cpu().numpy()
     power = -beta*(pi_b-pi_a)
-    return 1/(1+np.exp(power))
+    return 1/(1+torch.exp(power))
 
 def _get_pr_of_adjust_ties(pi_a, pi_b, beta):
-    pi_a, pi_b = pi_a.cpu().numpy(), pi_b.cpu().numpy()
     power = -beta*(pi_a-pi_b)
-    return 1/(1+np.exp(power))
-
+    return 1/(1+torch.exp(power))
 
 def do_rewiring(a, b, ngh_a, ngh_b, str_a, str_b, node_attrs, adj_matrix, payoff_matrix, beta_a):
     if str_a and str_b: 

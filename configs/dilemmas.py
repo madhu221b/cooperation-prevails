@@ -4,6 +4,7 @@ Creating a 2-D parameter space of T and S with fixed R and P
 """
 
 import numpy as np
+import random
 
 # Mutual Cooperation 
 R = 1
@@ -58,8 +59,12 @@ def get_stats(game_dict):
 
 def get_chunks(game_dict, chunk_dict):
     chunk_dict = dict()
+    random.seed(42)
+
     for game, param_range in game_dict.items():
         T_range, S_range = param_range["T"], param_range["S"]
+        random.shuffle(T_range)
+        random.shuffle(S_range)
         T_chunks = np.array_split(T_range, CHUNK_DICT[game]//2)
         S_chunks = np.array_split(S_range, CHUNK_DICT[game]//2)
         id_to_chunkids = dict()
