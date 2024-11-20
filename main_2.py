@@ -10,7 +10,8 @@ from multiprocessing import Pool
 # from multiprocessing.dummy import Pool as ThreadPool
 from utils. common_utils import create_subfolders, write_csv, read_csv
 from utils.game_utils import _is_reach_convergence,  _get_init_graph, \
-              _get_pr_of_strategy_update, _get_payoff_of_node, _get_pr_of_strategy_replacement, \
+              _get_pr_of_strategy_update, _get_payoff_of_node, _get_payoff_of_nodes, \
+               _get_pr_of_strategy_replacement, \
             _get_pr_of_adjust_ties, do_rewiring, _get_payoff_matrix
 
 from configs.game_configs import __N_INDEPENDENT_SIMULATIONS_, __N_GENERATIONS_, __EVENTS_, __HEADER_
@@ -25,25 +26,37 @@ logging.basicConfig(format='%(asctime)s:%(levelname)s:%(message)s', level=loggin
 import time
 
 N = 1000
-nodes = list(range(N))
+nodes = torch.arange(N).to(device)
 number_of_nodes = N
 
 z = 30
 beta_e = 0.005
 beta_a = 0.005
-W = 0.5
+W = 0.0
 pr_W = _get_pr_of_strategy_update(W)
+pr_Ws = torch.tensor([pr_W,1-pr_W],device=device) # __EVENTS_ = = ["strategy","structural"]
 lr = "rewiring"
 
+OFFSET = 1000
 def __play_game_for_g_generations(T, S, game, simulation,filename,payoff_matrix):   
     print("T: {}, S:{} - Running Simulation no : {}".format(T,S,simulation))
     node_attrs, adj_matrix = _get_init_graph(N, z, simulation)
     is_convergence = False
     for g in range(__N_GENERATIONS_):  
-        np.random.shuffle(nodes)
-        events = np.random.choice(__EVENTS_, size=number_of_nodes, p=[pr_W,1-pr_W])
-        
-        for a, event in zip(nodes,events):
+  
+        ##Shuffling of Nodes
+        rand_indx = torch.randperm(N)
+        shuffled_nodes = nodes[rand_indx]
+
+        events = torch.multinomial(pr_Ws,N,replacement=True)  
+
+        nodes_and_events = torch.vstack((shuffled_nodes,events)).T
+       
+        if g % 500 == 0:
+            print("Reached generation : {}, for T:{} and S: {}".format(g,T,S), file=open("trial.txt", "a"))
+        if g > (__N_GENERATIONS_ - OFFSET):
+            print("Reached last {} generations: {}, for T:{} and S: {}".format(offset,g,T,S), file=open("trial.txt", "a"))
+        for a, event in nodes_and_events:
 
             is_conv, frac_c = _is_reach_convergence(node_attrs)
             if is_conv:
@@ -53,16 +66,18 @@ def __play_game_for_g_generations(T, S, game, simulation,filename,payoff_matrix)
                 is_convergence = True
                 break
          
-            ngh_a =  (adj_matrix[a] == 1).nonzero().squeeze(1).tolist()
-            b = np.random.choice(ngh_a, size=1)[0]
+            ngh_a =  (adj_matrix[a] == 1).nonzero()
+            b = ngh_a[torch.randint(0, ngh_a.size(0), (1,))[0]]
             str_a, str_b = node_attrs[a], node_attrs[b]
-            ngh_b = (adj_matrix[b] == 1).nonzero().squeeze(1).tolist()
-            if event == "strategy":
-                pi_a, pi_b = _get_payoff_of_node(a, ngh_a, node_attrs, payoff_matrix), _get_payoff_of_node(b, ngh_b, node_attrs, payoff_matrix)
+            ngh_b = (adj_matrix[b] == 1).nonzero()
+            
+            if event == 0:
+                payoffs = _get_payoff_of_nodes([a,b],[ngh_a,ngh_b],node_attrs,payoff_matrix)
+                pi_a, pi_b = payoffs[0], payoffs[1]
                 pr_strategy_replace = _get_pr_of_strategy_replacement(pi_a, pi_b, beta_e)
-                is_replace = np.random.choice([True,False], size=1, p=[pr_strategy_replace,1-pr_strategy_replace])[0]
-                if is_replace:   node_attrs[a] =  str_b   # strategy of a is replaced by B's strategy
-            elif event == "structural":
+                replace_idx = torch.multinomial(torch.tensor([pr_strategy_replace,1-pr_strategy_replace]), 1)[0]
+                if replace_idx == 0:   node_attrs[a] =  str_b   # strategy of a is replaced by B's strategy
+            elif event == 1:
                 if lr == "rewiring":
                     adj_matrix = do_rewiring(a, b, ngh_a, ngh_b, str_a, str_b, node_attrs, adj_matrix, payoff_matrix, beta_a)
             else:
@@ -71,7 +86,7 @@ def __play_game_for_g_generations(T, S, game, simulation,filename,payoff_matrix)
         
         if is_convergence:
             break
-
+   
 
 def __play_game_for_n_simulations(T, S, game,payoff_matrix):
     print("Running simulations for graph of game:{}, T: {}, S:{}".format(game,T,S))
@@ -100,7 +115,7 @@ def __play_game_for_n_simulations(T, S, game,payoff_matrix):
     # content = [Parallel(n_jobs=8, verbose=10)(delayed(__play_game_for_g_generations)(N, z, beta_e, beta_a, pr_W, T, S, game, lr, simulation,filename,payoff_matrix) for simulation in sim_generator)]
     # write_csv(filename, content[0])
     args = [(T, S, game, simulation,filename,payoff_matrix) for simulation in remainder_simulations]
-    processes =  int(os.environ["SLURM_CPUS_ON_NODE"]) - 1
+    processes =  int(os.environ.get("SLURM_CPUS_ON_NODE", multiprocessing.cpu_count())) - 1
     print("No of processes: ", processes)
     # pool = ThreadPool(processes)
     # pool = Pool(processes)
@@ -140,11 +155,16 @@ def __play_game_per_Tchunk_and_Schunk(T_chunk, S_chunk, game):
             big_args_list.extend(args)
     processes =  multiprocessing.cpu_count() - 1
     
-    print("[{}] No of parallel processes:{}  for args: {}".format(os.environ["SLURMD_NODENAME"],processes,len(big_args_list)))
-    pool = Pool(processes)
-    pool.starmap(__play_game_for_g_generations, big_args_list)
-    pool.close()
-    pool.join()
+    print("[{}] No of parallel processes:{}  for args: {}".format(os.environ.get("SLURMD_NODENAME",""),processes,len(big_args_list)))
+    # pool = Pool(processes)
+    # pool.starmap(__play_game_for_g_generations, big_args_list)
+    # pool.close()
+    # pool.join()
+    for arg in big_args_list:
+        st2 = time.time()
+        T, S, game, simulation,filename,payoff_matrix = arg
+        __play_game_for_g_generations(T, S, game, simulation,filename,payoff_matrix) 
+        print("Game {} , Simulation : {} of T: {}, S:{} done in time{}".format(game,simulation,T,S,time.time()-st2))
 
 
     print("Done Processing chunk T: {}, S:{} at time: {}".format(T_chunk,S_chunk, time.time()-st))
@@ -189,8 +209,8 @@ if __name__ == "__main__":
     game = args.game
     
     T_chunk, S_chunk = chunk_dict[game][args.chunk]["T"], chunk_dict[game][args.chunk]["S"]
-
-    print("Node - [{}], Task - [{}] Simulations running on device: {} , and  game: {}, chunk: {}".format(os.environ["SLURMD_NODENAME"],os.environ["SLURM_STEP_TASKS_PER_NODE"],device, game, args.chunk))
+    T_chunk , S_chunk = [1.5], [1.0]
+    print("Node - [{}], Simulations running on device: {} , and  game: {}, chunk: {}".format(os.environ.get("SLURMD_NODENAME",""),device, game, args.chunk))
     print("Number of Nodes: {}, z: {}".format(N,z))
     print("Beta e: {}, Beta a: {}, W: {}".format(beta_a,beta_e,W))
     print("Link Recommender: {}, game: {}".format(lr, game))
