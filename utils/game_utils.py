@@ -19,7 +19,7 @@ def _get_init_graph(N, z, seed):
     g = _generate_graph(N, z, seed)
     # get tensor of node attributes
     node_attrs = nx.get_node_attributes(g, "strategy")
-    node_tensors = torch.zeros(g.number_of_nodes())
+    node_tensors = torch.zeros(g.number_of_nodes(), dtype=int)
     for node, strategy in node_attrs.items():
         node_tensors[node] = strategy
 
@@ -30,6 +30,32 @@ def _get_init_graph(N, z, seed):
     node_tensors = node_tensors.to(device)
     adj_matrix = adj_matrix.to(device)
     return node_tensors, adj_matrix
+
+def _get_init_graphs(N, z, seeds):
+
+    node_attr_big = torch.zeros((len(seeds),N), dtype=int)
+    adj_matrix_big = torch.zeros((len(seeds),N,N))
+    mapping_id2sim = dict()
+
+    for i, seed in enumerate(seeds):
+        g = _generate_graph(N, z, seed)
+        # get tensor of node attributes
+        node_attrs = nx.get_node_attributes(g, "strategy")
+        node_tensors = torch.zeros(N)
+        for node, strategy in node_attrs.items():
+             node_tensors[node] = strategy
+
+        # get adjacency matrix
+        adj_matrix =  nx.to_numpy_array(g, nodelist=list(range(g.number_of_nodes()))).astype(np.float32)
+        adj_matrix = torch.tensor(adj_matrix)
+
+        node_attr_big[i] = node_tensors
+        adj_matrix_big[i] = adj_matrix
+        mapping_id2sim[seed] = i
+
+    node_attr_big = node_attr_big.to(device)
+    adj_matrix_big = adj_matrix_big.to(device)
+    return node_attr_big, adj_matrix_big, mapping_id2sim
 
 def _get_pr_of_strategy_update(W):
     return 1/(1+W)
@@ -58,6 +84,18 @@ def _get_payoff_of_nodes(nodes,nghs,node_attrs, payoff_matrix):
         payoffs.append(torch.sum(vals))
     return payoffs
 
+def _get_payoff_of_nodes_for_all_sims(sim_dict, node_attrs, payoff_matrix):
+    payoff_tensor = torch.zeros((len(sim_dict), 3)) # sim_no, payoff_a, payoff_b
+    for i, (sim_no, values) in enumerate(sim_dict.items()):
+        a, b = values["a"], values["b"]
+        node_id_a, node_id_b = node_attrs[sim_no][a], node_attrs[sim_no][b]
+        ngh_a, ngh_b = values["ngh_a"], values["ngh_b"]
+        node_id_nghs_a, node_id_nghs_b = node_attrs[sim_no][ngh_a], node_attrs[sim_no][ngh_b]
+        vals_a, vals_b = payoff_matrix[node_id_a, node_id_nghs_a], payoff_matrix[node_id_b, node_id_nghs_b]
+        payoff_tensor[i] = torch.tensor([sim_no, torch.sum(vals_a), torch.sum(vals_b)])
+    return payoff_tensor
+        
+        
 # def _get_pr_of_strategy_replacement(pi_a, pi_b, beta):
 #     pi_a, pi_b = pi_a.cpu().numpy(), pi_b.cpu().numpy()
 #     power = -beta*(pi_b-pi_a)
