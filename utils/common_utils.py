@@ -4,12 +4,14 @@ import pickle
 import numpy as np
 import pandas as pd
 import csv
+import torch
 
 import logging
 logging.basicConfig(format='%(asctime)s:%(levelname)s:%(message)s', level=logging.DEBUG)
 
 
 def set_seed(seed):
+    torch.manual_seed(seed)
     np.random.seed(seed)
     random.seed(seed)
 
