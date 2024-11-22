@@ -35,7 +35,7 @@ def _get_init_graphs(N, z, seeds):
 
     node_attr_big = torch.zeros((len(seeds),N), dtype=int)
     adj_matrix_big = torch.zeros((len(seeds),N,N))
-    mapping_id2sim = dict()
+
 
     for i, seed in enumerate(seeds):
         g = _generate_graph(N, z, seed)
@@ -51,11 +51,10 @@ def _get_init_graphs(N, z, seeds):
 
         node_attr_big[i] = node_tensors
         adj_matrix_big[i] = adj_matrix
-        mapping_id2sim[seed] = i
-
+      
     node_attr_big = node_attr_big.to(device)
     adj_matrix_big = adj_matrix_big.to(device)
-    return node_attr_big, adj_matrix_big, mapping_id2sim
+    return node_attr_big, adj_matrix_big
 
 def _get_pr_of_strategy_update(W):
     return 1/(1+W)
@@ -84,12 +83,13 @@ def _get_payoff_of_nodes(nodes,nghs,node_attrs, payoff_matrix):
         payoffs.append(torch.sum(vals))
     return payoffs
 
-def _get_payoff_of_nodes_for_all_sims(sim_dict, node_attrs, payoff_matrix):
-    payoff_tensor = torch.zeros((len(sim_dict), 3)) # sim_no, payoff_a, payoff_b
-    for i, (sim_no, values) in enumerate(sim_dict.items()):
-        a, b = values["a"], values["b"]
-        node_id_a, node_id_b = node_attrs[sim_no][a], node_attrs[sim_no][b]
-        ngh_a, ngh_b = values["ngh_a"], values["ngh_b"]
+def _get_payoff_of_nodes_for_all_sims(ngh_dict, ab_tensor, node_attrs, payoff_matrix, sims_set):
+    payoff_tensor = torch.zeros((sims_set.size(0), 3)) # sim_no, payoff_a, payoff_b
+
+    for i, sim_no in enumerate(sims_set):
+        a, b = ab_tensor[sim_no,1], ab_tensor[sim_no, 2]
+        node_id_a, node_id_b = node_attrs[node_attrs][a], node_attrs[sim_no][b]
+        ngh_a, ngh_b = ngh_dict[int(sim_no)]["ngh_a"], ngh_dict[int(sim_no)]["ngh_b"]
         node_id_nghs_a, node_id_nghs_b = node_attrs[sim_no][ngh_a], node_attrs[sim_no][ngh_b]
         vals_a, vals_b = payoff_matrix[node_id_a, node_id_nghs_a], payoff_matrix[node_id_b, node_id_nghs_b]
         payoff_tensor[i] = torch.tensor([sim_no, torch.sum(vals_a), torch.sum(vals_b)])

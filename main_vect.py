@@ -45,23 +45,25 @@ def __play_game_for_g_generations(T, S, game, simulations,filename,payoff_matrix
     print("T: {}, S:{} - Running  len Simulations  : {}".format(T,S, len(simulations)))
     
      # shape of node_attrs = [n_simulations, N] adj_matrix = [n_simulations,N,N]
-    node_attrs_all, adj_matrix_all, mapping_id2sim = _get_init_graphs(N, z, simulations)
+    node_attrs_all, adj_matrix_all = _get_init_graphs(N, z, simulations)
     is_convergence_all = torch.zeros(n_simulations, device=device) # we maintain for all simulations, whether we reached convergence here
 
 
     for g in range(__N_GENERATIONS_):  
-        print("generation  g: ", g)
+        st = time.time()
+        
         if torch.all(is_convergence_all): break # all simulations reached convergence
          
         non_convergence_idxs = (is_convergence_all == 0).nonzero().squeeze(1)
         remainder_sims = non_convergence_idxs.size(0)
+        print("generation  g: {} , Non Converged Sims: {} ".format(g,remainder_sims))
    
    
      
         ##Shuffling of Nodes
         shuffled_nodes = torch.zeros((remainder_sims, N), dtype=int) # n_sims X N
         for i in range(remainder_sims):                                                                                               # shuffle nodes for all simulations
-            shuffled_nodes[i] = nodes[torch.randperm(N)]  # shuffle the nodes
+            shuffled_nodes[i] = nodes[torch.randperm(N)]# shuffle the nodes
        
         
         pr_Ws_tensor = pr_Ws.repeat(remainder_sims,1) # n_sims X 2
@@ -72,54 +74,56 @@ def __play_game_for_g_generations(T, S, game, simulations,filename,payoff_matrix
 
        
         for i in range(N): # select one agent iteratively out of N agents
-            a_for_all_sims = shuffled_nodes[:,i] # select source nodes for all simulations # sim
-            events_at_i_for_all_sims = events[:,i]
+            a_s = shuffled_nodes[:,i] # select source nodes for all simulations # sim
+            event_s = events[:,i]
             
             # 1. ngh_a = find neighbors of a, ngh_b = find neighbours of b
-            ab_and_nghs = dict()
-            replacement_tensor = torch.zeros((len(non_convergence_idxs),2),dtype=int, device=device) # sim_no, a, node_attr_b
-            for i, (sim_no, a) in enumerate(zip(non_convergence_idxs,a_for_all_sims)):
+            ngh_dict = dict() # sim no -> k , ngh_a, ngh_b -> val
+            sim_ab_tensor = torch.zeros((remainder_sims,4),dtype=int, device=device) # sim_no, a, b, node_attr_b
+            for i, (sim_no, a) in enumerate(zip(non_convergence_idxs, a_s)):
                 potential_bs = (adj_matrix_all[sim_no,a,:] == 1).nonzero()
                 rand_int = torch.randint(0, potential_bs.size(0), (1,))[0]
-                b = potential_bs[rand_int]
+                b = potential_bs[rand_int][0]
                 ngh_bs =  (adj_matrix_all[sim_no,b,:] == 1).nonzero()
-                ab_and_nghs[sim_no] = {"a":a, "b":b, "ngh_a":potential_bs, "ngh_b":ngh_bs}
-                replacement_tensor[i] = torch.tensor([sim_no, node_attrs_all[sim_no][b]])
+                ngh_dict[int(sim_no)] = {"ngh_a":potential_bs, "ngh_b":ngh_bs}
+                sim_ab_tensor[i] = torch.tensor([sim_no, a, b, node_attrs_all[sim_no][b]])
+          
             
             
         
             # 2. do strategy events for nodes of all simulations
-            sim_idxs_struct = (events_at_i_for_all_sims == 0).nonzero()
-            struct_dict = {k:v for k, v in ab_and_nghs.items() if k in sim_idxs_struct}
-            payoff_tensor = _get_payoff_of_nodes_for_all_sims(struct_dict, node_attrs_all, payoff_matrix) # sim_nos x 3
-            pr_strategy_replace = _get_pr_of_strategy_replacement(payoff_tensor[:,1], payoff_tensor[:,2], beta_e) # sim_nos X 1
-            prs_str = torch.vstack([pr_strategy_replace, 1-pr_strategy_replace]).T
-            replace_idx = torch.multinomial(prs_str, 1) # sim_nos X 1
-            sims_replace = sim_idxs_struct[replace_idx == 0] # replace idxs = 0 , pr_strategy_replace selected
-            node_attrs_all[sims_replace, a] =  replacement_tensor[sims_replace, 1]
+            event_struct = non_convergence_idxs[(event_s == 0).nonzero().squeeze(1)]
+            if event_struct.size(0) != 0: 
+                payoff_tensor = _get_payoff_of_nodes_for_all_sims(ngh_dict, sim_ab_tensor, node_attrs_all, payoff_matrix, event_struct) # sim_nos x 3
+                pr_strategy_replace = _get_pr_of_strategy_replacement(payoff_tensor[:,1], payoff_tensor[:,2], beta_e) # sim_nos X 1
+                prs_str = torch.vstack([pr_strategy_replace, 1-pr_strategy_replace]).T
+                replace_idx = torch.multinomial(prs_str, 1) # sim_nos X 1
+                replace_true_idxs = (replace_idx == 0).nonzero().squeeze(1)
+                sims_replace = event_struct[replace_true_idxs] # replace idxs = 0 , pr_strategy_replace selected
+                node_attrs_all[sims_replace, sim_ab_tensor[sims_replace,1]] =  sim_ab_tensor[sims_replace,3]
 
-            
+                
             
 
 
             # 3. do structural events for nodes of all simulations
-            sim_idxs_struct = (events_at_i_for_all_sims == 1).nonzero()
+            event_strategy = (event_s == 1).nonzero()
             
 
 
         # 4. Check for convergence
         check_for_sims = (is_convergence_all == 0).nonzero()
         sum_c = torch.sum(node_attrs_all[check_for_sims], dim=-1)
-        frac_c = sum_c/N
-        # print(frac_c)
-        defector_idxs = check_for_sims[(frac_c == 0.0).nonzero().squeeze(1)]
-        cooperator_idxs = check_for_sims[(frac_c == 1.0).nonzero().squeeze(1)]
-        converge_idxs = torch.cat((defector_idxs,cooperator_idxs),-1)
-        # print(converge_idxs.size(), converge_idxs)
-        if converge_idxs.size(0) != 0: 
-            print("convergence reached for gen: g {}, convrge idex: {}".format(g,converge_idxs))
-            is_convergence_all[converge_idxs] = 1.0
+        frac_c = (sum_c/N).squeeze(1)
 
+        defector_idxs = (frac_c == 0.0).nonzero().squeeze(1)
+        cooperator_idxs = (frac_c == 1.0).nonzero().squeeze(1)
+        
+        if defector_idxs.size(0) != 0 or cooperator_idxs.size(0) != 0:
+            converge_idxs = torch.cat((defector_idxs,cooperator_idxs)) 
+            print("convergence reached for gen: g {}, converge index: {}".format(g,converge_idxs))
+            is_convergence_all[converge_idxs] = 1.0
+        print("time for 1 generation: ", time.time()-st)
 
 
 
