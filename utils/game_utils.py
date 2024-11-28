@@ -83,12 +83,14 @@ def _get_payoff_of_nodes(nodes,nghs,node_attrs, payoff_matrix):
         payoffs.append(torch.sum(vals))
     return payoffs
 
-def _get_payoff_of_nodes_for_all_sims(ngh_dict, ab_tensor, node_attrs, payoff_matrix, sims_set):
+def _get_payoff_of_nodes_for_all_sims(ngh_dict, node_attrs, payoff_matrix, sims_set):
     payoff_tensor = torch.zeros((sims_set.size(0), 3)) # sim_no, payoff_a, payoff_b
 
     for i, sim_no in enumerate(sims_set):
-        a, b = ab_tensor[sim_no,1], ab_tensor[sim_no, 2]
-        node_id_a, node_id_b = node_attrs[node_attrs][a], node_attrs[sim_no][b]
+        a, b = ngh_dict[int(sim_no)]["a"], ngh_dict[int(sim_no)]["b"]
+        # row = ab_tensor.loc[ab_tensor["sim_no"] == sim_no, :]
+        # a, b = row["a"], row["b"]
+        node_id_a, node_id_b = node_attrs[sim_no][a], node_attrs[sim_no][b]
         ngh_a, ngh_b = ngh_dict[int(sim_no)]["ngh_a"], ngh_dict[int(sim_no)]["ngh_b"]
         node_id_nghs_a, node_id_nghs_b = node_attrs[sim_no][ngh_a], node_attrs[sim_no][ngh_b]
         vals_a, vals_b = payoff_matrix[node_id_a, node_id_nghs_a], payoff_matrix[node_id_b, node_id_nghs_b]

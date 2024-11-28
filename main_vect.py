@@ -2,6 +2,7 @@ import argparse
 import os
 from tqdm import tqdm
 import numpy as np
+import pandas as pd
 import networkx as nx
 import torch
 from joblib import Parallel, delayed, parallel_backend
@@ -46,15 +47,17 @@ def __play_game_for_g_generations(T, S, game, simulations,filename,payoff_matrix
     
      # shape of node_attrs = [n_simulations, N] adj_matrix = [n_simulations,N,N]
     node_attrs_all, adj_matrix_all = _get_init_graphs(N, z, simulations)
-    is_convergence_all = torch.zeros(n_simulations, device=device) # we maintain for all simulations, whether we reached convergence here
+    is_convergence_all = torch.zeros((n_simulations,2), device=device, dtype=int) # we maintain for all simulations, whether we reached convergence here
+    is_convergence_all[:,0] = torch.tensor(simulations)
+
 
 
     for g in range(__N_GENERATIONS_):  
         st = time.time()
         
-        if torch.all(is_convergence_all): break # all simulations reached convergence
+        if torch.all(is_convergence_all[:,1]): break # all simulations reached convergence
          
-        non_convergence_idxs = (is_convergence_all == 0).nonzero().squeeze(1)
+        non_convergence_idxs = (is_convergence_all[:, 1] == 0).nonzero().squeeze(1)
         remainder_sims = non_convergence_idxs.size(0)
         print("generation  g: {} , Non Converged Sims: {} ".format(g,remainder_sims))
    
@@ -85,25 +88,26 @@ def __play_game_for_g_generations(T, S, game, simulations,filename,payoff_matrix
                 rand_int = torch.randint(0, potential_bs.size(0), (1,))[0]
                 b = potential_bs[rand_int][0]
                 ngh_bs =  (adj_matrix_all[sim_no,b,:] == 1).nonzero()
-                ngh_dict[int(sim_no)] = {"ngh_a":potential_bs, "ngh_b":ngh_bs}
+                ngh_dict[int(sim_no)] = {"ngh_a":potential_bs, "ngh_b":ngh_bs, "a": a, "b": b} 
                 sim_ab_tensor[i] = torch.tensor([sim_no, a, b, node_attrs_all[sim_no][b]])
-          
-            
-            
-        
+    
+
             # 2. do strategy events for nodes of all simulations
             event_struct = non_convergence_idxs[(event_s == 0).nonzero().squeeze(1)]
             if event_struct.size(0) != 0: 
-                payoff_tensor = _get_payoff_of_nodes_for_all_sims(ngh_dict, sim_ab_tensor, node_attrs_all, payoff_matrix, event_struct) # sim_nos x 3
+                payoff_tensor = _get_payoff_of_nodes_for_all_sims(ngh_dict, node_attrs_all, payoff_matrix, event_struct) # sim_nos x 3
                 pr_strategy_replace = _get_pr_of_strategy_replacement(payoff_tensor[:,1], payoff_tensor[:,2], beta_e) # sim_nos X 1
                 prs_str = torch.vstack([pr_strategy_replace, 1-pr_strategy_replace]).T
-                replace_idx = torch.multinomial(prs_str, 1) # sim_nos X 1
+                replace_idx = torch.multinomial(prs_str, 1).squeeze(1) # sim_nos X 1
                 replace_true_idxs = (replace_idx == 0).nonzero().squeeze(1)
                 sims_replace = event_struct[replace_true_idxs] # replace idxs = 0 , pr_strategy_replace selected
-                node_attrs_all[sims_replace, sim_ab_tensor[sims_replace,1]] =  sim_ab_tensor[sims_replace,3]
+                mask = torch.isin(sim_ab_tensor[:, 0], sims_replace)
+                sim_ab_tensor_subset = sim_ab_tensor[mask]
+                sim_no_replace = sim_ab_tensor_subset[:, 0]
+                a_replace = sim_ab_tensor_subset[:, 1]
+                node_attrs_b_replace = sim_ab_tensor_subset[:, 3]
+                node_attrs_all[sim_no_replace, a_replace] =  node_attrs_b_replace
 
-                
-            
 
 
             # 3. do structural events for nodes of all simulations
@@ -112,58 +116,22 @@ def __play_game_for_g_generations(T, S, game, simulations,filename,payoff_matrix
 
 
         # 4. Check for convergence
-        check_for_sims = (is_convergence_all == 0).nonzero()
+        check_for_sims = is_convergence_all[is_convergence_all[:,1] == 0][:,0]
+       
         sum_c = torch.sum(node_attrs_all[check_for_sims], dim=-1)
-        frac_c = (sum_c/N).squeeze(1)
 
+        frac_c = (sum_c/N)
+        
         defector_idxs = (frac_c == 0.0).nonzero().squeeze(1)
         cooperator_idxs = (frac_c == 1.0).nonzero().squeeze(1)
         
         if defector_idxs.size(0) != 0 or cooperator_idxs.size(0) != 0:
-            converge_idxs = torch.cat((defector_idxs,cooperator_idxs)) 
-            print("convergence reached for gen: g {}, converge index: {}".format(g,converge_idxs))
-            is_convergence_all[converge_idxs] = 1.0
+            converge_idxs = torch.cat((defector_idxs,cooperator_idxs))
+            converge_sims = check_for_sims[converge_idxs] 
+            print("convergence reached for gen: g {}, converge index: {}".format(g,converge_sims))
+            is_convergence_all[converge_sims] = 1.0
         print("time for 1 generation: ", time.time()-st)
 
-
-
-          
-
-        
-
-            
-
-        # for a, event in None:
-
-        #     is_conv, frac_c = _is_reach_convergence(node_attrs)
-        #     if is_conv:
-        #         logging.info("Convergence reached for T:{}, S:{}, sim no: {}".format(T,S,simulation))
-        #         # return [simulation,frac_c,g]
-        #         write_csv(filename, content=[simulation,frac_c,g])
-        #         is_convergence = True
-        #         break
-         
-        #     ngh_a =  (adj_matrix[a] == 1).nonzero()
-        #     b = ngh_a[torch.randint(0, ngh_a.size(0), (1,))[0]]
-        #     str_a, str_b = node_attrs[a], node_attrs[b]
-        #     ngh_b = (adj_matrix[b] == 1).nonzero()
-            
-        #     if event == 0:
-        #         payoffs = _get_payoff_of_nodes([a,b],[ngh_a,ngh_b],node_attrs,payoff_matrix)
-        #         pi_a, pi_b = payoffs[0], payoffs[1]
-        #         pr_strategy_replace = _get_pr_of_strategy_replacement(pi_a, pi_b, beta_e)
-        #         replace_idx = torch.multinomial(torch.tensor([pr_strategy_replace,1-pr_strategy_replace]), 1)[0]
-        #         if replace_idx == 0:   node_attrs[a] =  str_b   # strategy of a is replaced by B's strategy
-        #     elif event == 1:
-        #         if lr == "rewiring":
-        #             adj_matrix = do_rewiring(a, b, ngh_a, ngh_b, str_a, str_b, node_attrs, adj_matrix, payoff_matrix, beta_a)
-        #     else:
-        #         logging.error("Received an event other than the two discussed")
-        
-        
-        # if is_convergence:
-        #     break
-   
 
 def __play_game_for_n_simulations(T, S, game,payoff_matrix):
     print("Running simulations for graph of game:{}, T: {}, S:{}".format(game,T,S))
