@@ -4,6 +4,7 @@ import numpy as np
 import torch
 from utils.common_utils import create_subfolders
 from configs.dilemmas import R, P
+from configs.game_configs import __N_INDEPENDENT_SIMULATIONS_
 from configs.device_configs import device
 from dataloader import _generate_graph
 
@@ -33,8 +34,8 @@ def _get_init_graph(N, z, seed):
 
 def _get_init_graphs(N, z, seeds):
 
-    node_attr_big = torch.zeros((len(seeds),N), dtype=int)
-    adj_matrix_big = torch.zeros((len(seeds),N,N))
+    node_attr_big = torch.zeros((__N_INDEPENDENT_SIMULATIONS_,N), dtype=int)
+    adj_matrix_big = torch.zeros((__N_INDEPENDENT_SIMULATIONS_,N,N))
 
 
     for i, seed in enumerate(seeds):
@@ -49,8 +50,8 @@ def _get_init_graphs(N, z, seeds):
         adj_matrix =  nx.to_numpy_array(g, nodelist=list(range(g.number_of_nodes()))).astype(np.float32)
         adj_matrix = torch.tensor(adj_matrix)
 
-        node_attr_big[i] = node_tensors
-        adj_matrix_big[i] = adj_matrix
+        node_attr_big[seed] = node_tensors
+        adj_matrix_big[seed] = adj_matrix
       
     node_attr_big = node_attr_big.to(device)
     adj_matrix_big = adj_matrix_big.to(device)
@@ -87,14 +88,14 @@ def _get_payoff_of_nodes_for_all_sims(ngh_dict, node_attrs, payoff_matrix, sims_
     payoff_tensor = torch.zeros((sims_set.size(0), 3)) # sim_no, payoff_a, payoff_b
 
     for i, sim_no in enumerate(sims_set):
-        a, b = ngh_dict[int(sim_no)]["a"], ngh_dict[int(sim_no)]["b"]
-        # row = ab_tensor.loc[ab_tensor["sim_no"] == sim_no, :]
-        # a, b = row["a"], row["b"]
+        sim_no = int(sim_no)
+        a, b = ngh_dict[sim_no]["a"], ngh_dict[sim_no]["b"]
         node_id_a, node_id_b = node_attrs[sim_no][a], node_attrs[sim_no][b]
-        ngh_a, ngh_b = ngh_dict[int(sim_no)]["ngh_a"], ngh_dict[int(sim_no)]["ngh_b"]
+        ngh_a, ngh_b = ngh_dict[sim_no]["ngh_a"], ngh_dict[sim_no]["ngh_b"]
         node_id_nghs_a, node_id_nghs_b = node_attrs[sim_no][ngh_a], node_attrs[sim_no][ngh_b]
         vals_a, vals_b = payoff_matrix[node_id_a, node_id_nghs_a], payoff_matrix[node_id_b, node_id_nghs_b]
         payoff_tensor[i] = torch.tensor([sim_no, torch.sum(vals_a), torch.sum(vals_b)])
+
     return payoff_tensor
         
         

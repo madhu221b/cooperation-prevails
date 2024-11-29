@@ -43,7 +43,7 @@ def write_csv(filename, content, mode="a"):
     with open(filename, mode) as f:
             writer = csv.writer(f)
             if mode == "a":
-               writer.writerow(content)
+               writer.writerows(content)
             else:
                 writer.writerow(content)
 
