@@ -9,7 +9,7 @@ from joblib import Parallel, delayed, parallel_backend
 import multiprocessing
 from multiprocessing import Pool
 # from multiprocessing.dummy import Pool as ThreadPool
-from utils. common_utils import create_subfolders, write_csv, read_csv
+from utils.common_utils import create_subfolders, write_csv, read_csv, read_pickle, save_generation_snap
 from utils.game_utils import _is_reach_convergence,  _get_init_graphs, \
               _get_pr_of_strategy_update, _get_payoff_of_node, _get_payoff_of_nodes, _get_payoff_of_nodes_for_all_sims, \
                _get_pr_of_strategy_replacement, \
@@ -33,19 +33,20 @@ number_of_nodes = N
 z = 30
 beta_e = 0.005
 beta_a = 0.005
-W = 1.0
+W = 0.0
 pr_W = _get_pr_of_strategy_update(W)
 pr_Ws = torch.tensor([pr_W,1-pr_W],device=device) # __EVENTS_ = = ["strategy","structural"]
 lr = "rewiring"
 
-OFFSET = 1000
+
 
 def _is_convergence_reached(is_convergence_all, node_attrs_all, g, filename):
     is_all_sims = False
+      
     non_convergence_idxs = is_convergence_all[is_convergence_all[:,1] == 0][:,0]
     remainder_sims = non_convergence_idxs.size(0)
     if remainder_sims == 0:
-        print("Converegence reached for all sims")
+        print("Convergence reached for all sims")
         is_all_sims = True
      
     sum_c = torch.sum(node_attrs_all[non_convergence_idxs], dim=-1)
@@ -53,32 +54,49 @@ def _is_convergence_reached(is_convergence_all, node_attrs_all, g, filename):
     sim_frac = torch.cat((non_convergence_idxs[:, None], frac_c[:, None]), dim=-1)
     mask = torch.logical_or(sim_frac[:, 1] == 0, sim_frac[:, 1] == 1)
     sim_frac = sim_frac[mask]
-   
+
     if sim_frac.size(0) > 0:
         converge_sims = sim_frac[:,0]
-        print("Convergence Reached for simulations: ", converge_sims)
-        is_convergence_all[converge_sims.long(),1] = 1
-        
+
+        mask = torch.isin(is_convergence_all[:, 0], converge_sims)
+        converge_idxs = torch.nonzero(mask)
+        is_convergence_all[converge_idxs, 1] = 1
+
         non_convergence_idxs = is_convergence_all[is_convergence_all[:,1] == 0][:,0]
         remainder_sims = non_convergence_idxs.size(0)
+        print("remainder sims after convergence updation: ", remainder_sims)
 
         results = [[int(sim), float(frac), g] for sim, frac in sim_frac]
         write_csv(filename, results)
 
     return is_all_sims, remainder_sims, non_convergence_idxs, is_convergence_all
 
-def __play_game_for_g_generations(T, S, game, simulations,filename,payoff_matrix):  
+def __play_game_for_g_generations(T, S, game, simulations,filename,payoff_matrix): 
+
+    file_name_snap = filename.replace("lr_rewiring", "snaps_rewiring").replace(".csv",".pkl")
+
     n_simulations = len(simulations)
-    print("T: {}, S:{} - Running  len Simulations  : {}".format(T,S, len(simulations)))
-    
-     # shape of node_attrs = [n_simulations, N] adj_matrix = [n_simulations,N,N]
-    node_attrs_all, adj_matrix_all = _get_init_graphs(N, z, simulations)
     is_convergence_all = torch.zeros((n_simulations,2), device=device, dtype=int) # we maintain for all simulations, whether we reached convergence here
     is_convergence_all[:,0] = torch.tensor(simulations, dtype=int)
     
+    print("T: {}, S:{} - Running  len Simulations  : {}".format(T,S, len(simulations)))
+    
+     # shape of node_attrs = [n_simulations, N] adj_matrix = [n_simulations,N,N]
+    if not os.path.exists(file_name_snap):
+         node_attrs_all, adj_matrix_all = _get_init_graphs(N, z, simulations)
+         start_gen = 0
+    else: # load the last most saved generation
+          print("Loading the generations from :", file_name_snap)
+          td = read_pickle(file_name_snap)
+          node_attrs_all, adj_matrix_all = td["node_attrs_all"], td["adj_matrix_all"]
+          start_gen = td["g"]+1
+          print("Starting from generation: ", start_gen)
+    
+    
 
 
-    for g in range(__N_GENERATIONS_):  
+
+    for g in range(start_gen, __N_GENERATIONS_):  
         st = time.time()
         
         is_all_sims, remainder_sims, non_convergence_idxs, is_convergence_all = _is_convergence_reached(is_convergence_all, node_attrs_all, g, filename)
@@ -130,9 +148,7 @@ def __play_game_for_g_generations(T, S, game, simulations,filename,payoff_matrix
                 a_replace = sim_ab_tensor_subset[:, 1]
                 node_attrs_b_replace = sim_ab_tensor_subset[:, 3]
                 node_attrs_all[sims_replace, a_replace] =  node_attrs_b_replace
-
-
-
+            
             # 3. do structural events for nodes of all simulations
             event_strategy = non_convergence_idxs[event_s == 1]
             if event_strategy.size(0) != 0:
@@ -170,6 +186,8 @@ def __play_game_for_g_generations(T, S, game, simulations,filename,payoff_matrix
             
 
         print("time for 1 generation: ", time.time()-st)
+        if g % 1000 == 0:
+            save_generation_snap(node_attrs_all, adj_matrix_all, g, file_name_snap)
 
 
 def __play_game_for_n_simulations(T, S, game,payoff_matrix):
@@ -293,7 +311,7 @@ if __name__ == "__main__":
     game = args.game
     
     T_chunk, S_chunk = chunk_dict[game][args.chunk]["T"], chunk_dict[game][args.chunk]["S"]
-    T_chunk , S_chunk = [1.2], [0.3]
+    T_chunk , S_chunk = [1.3], [0.9]
     print("Node - [{}], Simulations running on device: {} , and  game: {}, chunk: {}".format(os.environ.get("SLURMD_NODENAME",""),device, game, args.chunk))
     print("Number of Nodes: {}, z: {}".format(N,z))
     print("Beta e: {}, Beta a: {}, W: {}".format(beta_a,beta_e,W))

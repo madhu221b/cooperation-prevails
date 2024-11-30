@@ -5,7 +5,6 @@ import numpy as np
 import pandas as pd
 import csv
 import torch
-
 import logging
 logging.basicConfig(format='%(asctime)s:%(levelname)s:%(message)s', level=logging.DEBUG)
 
@@ -50,3 +49,15 @@ def write_csv(filename, content, mode="a"):
 def read_csv(filename):
     df = pd.read_csv(filename)
     return df
+
+def save_generation_snap(node_attrs_all, adj_matrix_all, g, file_name):
+    create_subfolders(file_name)
+    td = {'node_attrs_all': node_attrs_all,
+                      'adj_matrix_all': adj_matrix_all,
+                      'g': g
+                       }
+    print("Saving generation snap of g: {}, at : {}".format(g, file_name))
+    save_pickle(td, file_name)
+
+    
+
