@@ -33,6 +33,8 @@ def generate_heatmap(W, N, z):
                df = pd.read_csv(csv_file)
             except Exception as e:
                 continue
+            if df[df.duplicated(["run_no"])].shape[0] > 0:
+                print("!!! ", file_name)
             if  df.shape[0] == __N_INDEPENDENT_SIMULATIONS_: # ran for N independent simulations
                 _,_, T,_, S, _ = file_name.split("_")
                 T, S = float(T), float(S)

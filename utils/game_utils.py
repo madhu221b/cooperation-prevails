@@ -135,3 +135,17 @@ def do_rewiring(a, b, ngh_a, ngh_b, str_a, str_b, node_attrs, adj_matrix, payoff
         pass
 
     return adj_matrix
+
+
+def get_fracs_at_g(node_attrs_all, non_convergence_idxs, is_convergence_all):
+
+    sum_c = torch.sum(node_attrs_all[non_convergence_idxs], dim=-1)
+    frac_c = (sum_c/N)
+
+    sim_frac = torch.cat((non_convergence_idxs[:, None], frac_c[:, None]), dim=-1)
+    for sim, frac in sim_frac:
+        idx = (is_convergence_all[:, 0] == sim).nonzero()
+        is_convergence_all[idx, 1] += frac
+    
+    return is_convergence_all
+

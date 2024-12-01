@@ -13,9 +13,9 @@ from utils.common_utils import create_subfolders, write_csv, read_csv, read_pick
 from utils.game_utils import _is_reach_convergence,  _get_init_graphs, \
               _get_pr_of_strategy_update, _get_payoff_of_node, _get_payoff_of_nodes, _get_payoff_of_nodes_for_all_sims, \
                _get_pr_of_strategy_replacement, \
-            _get_pr_of_adjust_ties, do_rewiring, _get_payoff_matrix
+            _get_pr_of_adjust_ties, do_rewiring, _get_payoff_matrix, get_fracs_at_g
 
-from configs.game_configs import __N_INDEPENDENT_SIMULATIONS_, __N_GENERATIONS_, __EVENTS_, __HEADER_
+from configs.game_configs import __N_INDEPENDENT_SIMULATIONS_, __N_GENERATIONS_, __EVENTS_, __HEADER_, OFFSET
 from configs.dilemmas import GAME_DICT, chunk_dict
 from configs.dilemmas import R, P
 from configs.device_configs import device
@@ -54,10 +54,9 @@ def _is_convergence_reached(is_convergence_all, node_attrs_all, g, filename):
     sim_frac = torch.cat((non_convergence_idxs[:, None], frac_c[:, None]), dim=-1)
     mask = torch.logical_or(sim_frac[:, 1] == 0, sim_frac[:, 1] == 1)
     sim_frac = sim_frac[mask]
-
-    if sim_frac.size(0) > 0:
+    
+    if sim_frac.size(0) > 0: # check for cooperators/defectors
         converge_sims = sim_frac[:,0]
-
         mask = torch.isin(is_convergence_all[:, 0], converge_sims)
         converge_idxs = torch.nonzero(mask)
         is_convergence_all[converge_idxs, 1] = 1
@@ -65,9 +64,23 @@ def _is_convergence_reached(is_convergence_all, node_attrs_all, g, filename):
         non_convergence_idxs = is_convergence_all[is_convergence_all[:,1] == 0][:,0]
         remainder_sims = non_convergence_idxs.size(0)
         print("remainder sims after convergence updation: ", remainder_sims)
-
         results = [[int(sim), float(frac), g] for sim, frac in sim_frac]
         write_csv(filename, results)
+    
+    if   g == __N_GENERATIONS_ - 1: # we have reached last generation
+        print("Cumulating results for the last generation: ", g)
+        mask = torch.isin(is_convergence_all[:, 0], non_convergence_idxs)
+        idxs = torch.nonzero(mask)
+        frac_c = is_convergence_all[idxs, 1]/OFFSET
+        sim_frac = torch.cat((is_convergence_all[idxs, 0][:, None], frac_c[:, None]), dim=-1)
+
+
+        is_convergence_all[idxs, 1] = 1
+        results = [[int(sim), float(frac), g] for sim, frac in sim_frac]
+        write_csv(filename, results)
+
+        non_convergence_idxs = is_convergence_all[is_convergence_all[:,1] == 0][:,0]
+        remainder_sims = non_convergence_idxs.size(0)
 
     return is_all_sims, remainder_sims, non_convergence_idxs, is_convergence_all
 
@@ -188,6 +201,10 @@ def __play_game_for_g_generations(T, S, game, simulations,filename,payoff_matrix
         print("time for 1 generation: ", time.time()-st)
         if g % 1000 == 0:
             save_generation_snap(node_attrs_all, adj_matrix_all, g, file_name_snap)
+        if g >= (__N_GENERATIONS_ - OFFSET):
+            print("Cumulating the frac at generation g: ", g)
+            is_convergence_all = get_fracs_at_g(node_attrs_all, non_convergence_idxs, is_convergence_all)
+
 
 
 def __play_game_for_n_simulations(T, S, game,payoff_matrix):
@@ -311,7 +328,7 @@ if __name__ == "__main__":
     game = args.game
     
     T_chunk, S_chunk = chunk_dict[game][args.chunk]["T"], chunk_dict[game][args.chunk]["S"]
-    T_chunk , S_chunk = [1.3], [0.9]
+    T_chunk , S_chunk = [1.4], [0.1]
     print("Node - [{}], Simulations running on device: {} , and  game: {}, chunk: {}".format(os.environ.get("SLURMD_NODENAME",""),device, game, args.chunk))
     print("Number of Nodes: {}, z: {}".format(N,z))
     print("Beta e: {}, Beta a: {}, W: {}".format(beta_a,beta_e,W))
