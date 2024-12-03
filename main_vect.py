@@ -33,7 +33,7 @@ number_of_nodes = N
 z = 30
 beta_e = 0.005
 beta_a = 0.005
-W = 0.0
+W = 1.0
 pr_W = _get_pr_of_strategy_update(W)
 pr_Ws = torch.tensor([pr_W,1-pr_W],device=device) # __EVENTS_ = = ["strategy","structural"]
 lr = "rewiring"
@@ -44,6 +44,7 @@ def _is_convergence_reached(is_convergence_all, node_attrs_all, g, filename):
     is_all_sims = False
       
     non_convergence_idxs = is_convergence_all[is_convergence_all[:,1] == 0][:,0]
+    non_convergence_idxs = non_convergence_idxs.to(device)
     remainder_sims = non_convergence_idxs.size(0)
     if remainder_sims == 0:
         print("Convergence reached for all sims")
@@ -66,6 +67,8 @@ def _is_convergence_reached(is_convergence_all, node_attrs_all, g, filename):
         print("remainder sims after convergence updation: ", remainder_sims)
         results = [[int(sim), float(frac), g] for sim, frac in sim_frac]
         write_csv(filename, results)
+
+        if remainder_sims == 0: is_all_sims = True
     
     if   g == __N_GENERATIONS_ - 1: # we have reached last generation
         print("Cumulating results for the last generation: ", g)
@@ -81,6 +84,7 @@ def _is_convergence_reached(is_convergence_all, node_attrs_all, g, filename):
 
         non_convergence_idxs = is_convergence_all[is_convergence_all[:,1] == 0][:,0]
         remainder_sims = non_convergence_idxs.size(0)
+        if remainder_sims == 0: is_all_sims = True
 
     return is_all_sims, remainder_sims, non_convergence_idxs, is_convergence_all
 
@@ -118,9 +122,7 @@ def __play_game_for_g_generations(T, S, game, simulations,filename,payoff_matrix
         print("generation  g: {} , Non Converged Sims: {} ".format(g,remainder_sims))
    
         ##Shuffling of Nodes
-        shuffled_nodes = torch.zeros((remainder_sims, N), dtype=int) # n_sims X N
-        for i in range(remainder_sims):                                                                                               # shuffle nodes for all simulations
-            shuffled_nodes[i] = nodes[torch.randperm(N)]# shuffle the nodes
+        shuffled_nodes = torch.stack([torch.randperm(N) for _ in range(remainder_sims)])
        
         
         pr_Ws_tensor = pr_Ws.repeat(remainder_sims,1) # n_sims X 2
@@ -138,6 +140,9 @@ def __play_game_for_g_generations(T, S, game, simulations,filename,payoff_matrix
             
         
             bs = (adj_matrix_all[non_convergence_idxs,a_s,:] == 1).nonzero()
+         
+            # print(a_s)
+            # print(non_convergence_idxs)
             for i, (sim_no, a) in enumerate(zip(non_convergence_idxs, a_s)):         
                 potential_bs = bs[bs[:,0] == i,1]
                 rand_int = torch.randint(0, potential_bs.size(0), (1,))[0]
@@ -275,14 +280,15 @@ def __play_game_per_Tchunk_and_Schunk(T_chunk, S_chunk, game):
     processes =  multiprocessing.cpu_count() - 1
     
     print("[{}] No of parallel processes:{}  for args: {}".format(os.environ.get("SLURMD_NODENAME",""),processes,len(big_args_list)))
-    # pool = Pool(processes)
-    # pool.starmap(__play_game_for_g_generations, big_args_list)
-    # pool.close()
-    # pool.join()
-    for arg in big_args_list:
-        st2 = time.time()
-        T, S, game, simulations,filename,payoff_matrix = arg
-        __play_game_for_g_generations(T, S, game, simulations,filename,payoff_matrix) 
+    pool = Pool(processes)
+    pool.starmap(__play_game_for_g_generations, big_args_list)
+    pool.close()
+    pool.join()
+
+    # for arg in big_args_list:
+    #     st2 = time.time()
+    #     T, S, game, simulations,filename,payoff_matrix = arg
+    #     __play_game_for_g_generations(T, S, game, simulations,filename,payoff_matrix) 
 
 
 
@@ -328,7 +334,6 @@ if __name__ == "__main__":
     game = args.game
     
     T_chunk, S_chunk = chunk_dict[game][args.chunk]["T"], chunk_dict[game][args.chunk]["S"]
-    T_chunk , S_chunk = [1.4], [0.1]
     print("Node - [{}], Simulations running on device: {} , and  game: {}, chunk: {}".format(os.environ.get("SLURMD_NODENAME",""),device, game, args.chunk))
     print("Number of Nodes: {}, z: {}".format(N,z))
     print("Beta e: {}, Beta a: {}, W: {}".format(beta_a,beta_e,W))
