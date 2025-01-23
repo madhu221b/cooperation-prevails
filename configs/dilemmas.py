@@ -59,7 +59,7 @@ def get_stats(game_dict):
 
 def get_chunks(game_dict, chunk_dict):
     chunk_dict = dict()
-    random.seed(42)
+    random.seed(40)
 
     for game, param_range in game_dict.items():
         T_range, S_range = param_range["T"], param_range["S"]
@@ -74,6 +74,7 @@ def get_chunks(game_dict, chunk_dict):
             for  S_chunk in  S_chunks:
                 chunk_dict[game][i] = {"T":T_chunk, "S":S_chunk}
                 i += 1
+ 
     return chunk_dict
 
        

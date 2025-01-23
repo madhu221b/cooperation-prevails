@@ -84,20 +84,50 @@ def _get_payoff_of_nodes(nodes,nghs,node_attrs, payoff_matrix):
         payoffs.append(torch.sum(vals))
     return payoffs
 
-def _get_payoff_of_nodes_for_all_sims(ngh_dict, node_attrs, payoff_matrix, sims_set):
+# def _get_payoff_of_nodes_for_all_sims(ngh_dict, node_attrs, payoff_matrix, sims_set):
+#     payoff_tensor = torch.zeros((sims_set.size(0), 3)) # sim_no, payoff_a, payoff_b
+
+#     for i, sim_no in enumerate(sims_set):
+#         sim_no = int(sim_no)
+#         a, b = ngh_dict[sim_no]["a"], ngh_dict[sim_no]["b"]
+#         node_id_a, node_id_b = node_attrs[sim_no][a], node_attrs[sim_no][b]
+#         ngh_a, ngh_b = ngh_dict[sim_no]["ngh_a"], ngh_dict[sim_no]["ngh_b"]
+#         node_id_nghs_a, node_id_nghs_b = node_attrs[sim_no][ngh_a], node_attrs[sim_no][ngh_b]
+#         vals_a, vals_b = payoff_matrix[node_id_a, node_id_nghs_a], payoff_matrix[node_id_b, node_id_nghs_b]
+#         payoff_tensor[i] = torch.tensor([sim_no, torch.sum(vals_a), torch.sum(vals_b)])
+
+#     return payoff_tensor
+
+def _get_payoff_of_nodes_for_all_sims(all_nodes, node_attrs, adj_matrix_all, payoff_matrix, sims_set, sim_ab_tensor):
     payoff_tensor = torch.zeros((sims_set.size(0), 3)) # sim_no, payoff_a, payoff_b
 
-    for i, sim_no in enumerate(sims_set):
-        sim_no = int(sim_no)
-        a, b = ngh_dict[sim_no]["a"], ngh_dict[sim_no]["b"]
-        node_id_a, node_id_b = node_attrs[sim_no][a], node_attrs[sim_no][b]
-        ngh_a, ngh_b = ngh_dict[sim_no]["ngh_a"], ngh_dict[sim_no]["ngh_b"]
-        node_id_nghs_a, node_id_nghs_b = node_attrs[sim_no][ngh_a], node_attrs[sim_no][ngh_b]
-        vals_a, vals_b = payoff_matrix[node_id_a, node_id_nghs_a], payoff_matrix[node_id_b, node_id_nghs_b]
-        payoff_tensor[i] = torch.tensor([sim_no, torch.sum(vals_a), torch.sum(vals_b)])
+    sim_ab_tensor_subset = sim_ab_tensor[torch.isin(sim_ab_tensor[:, 0], sims_set)]
+    sim_nos = sim_ab_tensor_subset[:, 0]
+    a_s = sim_ab_tensor_subset[:, 1]
+    node_id_a_s = node_attrs[sim_nos, a_s]
+    b_s = sim_ab_tensor_subset[: , 2]
+    node_id_b_s = node_attrs[sim_nos, b_s]
+    
+    rep = all_nodes.repeat(sim_nos.size(0),1)
+    node_id_all = node_attrs[sim_nos[:, None], rep]
+    
+    
+    adj_matrix_subset = adj_matrix_all[sim_nos, a_s]
+    pf = payoff_matrix[node_id_a_s[:, None], node_id_all]
+    pf_needed = pf * adj_matrix_subset
+    pf_sum_a = torch.sum(pf_needed, dim=-1)
+
+    adj_matrix_subset = adj_matrix_all[sim_nos, b_s]
+    pf = payoff_matrix[node_id_b_s[:, None], node_id_all]
+    pf_needed = pf * adj_matrix_subset
+    pf_sum_b = torch.sum(pf_needed, dim=-1)
+
+
+    payoff_tensor[:, 0] = sim_nos
+    payoff_tensor[:, 1] = pf_sum_a
+    payoff_tensor[:, 2] = pf_sum_b
 
     return payoff_tensor
-        
         
 # def _get_pr_of_strategy_replacement(pi_a, pi_b, beta):
 #     pi_a, pi_b = pi_a.cpu().numpy(), pi_b.cpu().numpy()

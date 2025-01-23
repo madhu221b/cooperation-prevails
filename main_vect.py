@@ -15,6 +15,8 @@ from utils.game_utils import _is_reach_convergence,  _get_init_graphs, \
                _get_pr_of_strategy_replacement, \
             _get_pr_of_adjust_ties, do_rewiring, _get_payoff_matrix, get_fracs_at_g
 
+from utils.rewiring_utils import get_common_rewiring_candidate
+
 from configs.game_configs import __N_INDEPENDENT_SIMULATIONS_, __N_GENERATIONS_, __EVENTS_, __HEADER_, OFFSET
 from configs.dilemmas import GAME_DICT, chunk_dict
 from configs.dilemmas import R, P
@@ -33,10 +35,10 @@ number_of_nodes = N
 z = 30
 beta_e = 0.005
 beta_a = 0.005
-W = 1.0
+W =  8.0
 pr_W = _get_pr_of_strategy_update(W)
 pr_Ws = torch.tensor([pr_W,1-pr_W],device=device) # __EVENTS_ = = ["strategy","structural"]
-lr = "rewiring"
+lr = "nopr_rewiring" # common_ngh, rewiring
 
 
 
@@ -44,7 +46,6 @@ def _is_convergence_reached(is_convergence_all, node_attrs_all, g, filename):
     is_all_sims = False
       
     non_convergence_idxs = is_convergence_all[is_convergence_all[:,1] == 0][:,0]
-    non_convergence_idxs = non_convergence_idxs.to(device)
     remainder_sims = non_convergence_idxs.size(0)
     if remainder_sims == 0:
         print("Convergence reached for all sims")
@@ -89,9 +90,9 @@ def _is_convergence_reached(is_convergence_all, node_attrs_all, g, filename):
     return is_all_sims, remainder_sims, non_convergence_idxs, is_convergence_all
 
 def __play_game_for_g_generations(T, S, game, simulations,filename,payoff_matrix): 
-
-    file_name_snap = filename.replace("lr_rewiring", "snaps_rewiring").replace(".csv",".pkl")
-
+   
+    file_name_snap = filename.replace("lr_{}".format(lr), "snaps_{}".format(lr)).replace(".csv",".pkl")
+    file_name_snap = file_name_snap.replace("./data","/var/scratch/mmpawar")
     n_simulations = len(simulations)
     is_convergence_all = torch.zeros((n_simulations,2), device=device, dtype=int) # we maintain for all simulations, whether we reached convergence here
     is_convergence_all[:,0] = torch.tensor(simulations, dtype=int)
@@ -111,15 +112,13 @@ def __play_game_for_g_generations(T, S, game, simulations,filename,payoff_matrix
     
     
 
-
-
     for g in range(start_gen, __N_GENERATIONS_):  
         st = time.time()
         
         is_all_sims, remainder_sims, non_convergence_idxs, is_convergence_all = _is_convergence_reached(is_convergence_all, node_attrs_all, g, filename)
         if is_all_sims: break
          
-        print("generation  g: {} , Non Converged Sims: {} ".format(g,remainder_sims))
+        print("T: {}, S: {}, generation  g: {} , Non Converged Sims: {} ".format(T, S, g,remainder_sims))
    
         ##Shuffling of Nodes
         shuffled_nodes = torch.stack([torch.randperm(N) for _ in range(remainder_sims)])
@@ -135,129 +134,94 @@ def __play_game_for_g_generations(T, S, game, simulations,filename,payoff_matrix
             event_s = events[:,i]
             
             # 1.1 ngh_a = find neighbors of a, 
-            ngh_dict = dict() # sim no -> k , ngh_a, ngh_b -> val
-            sim_ab_tensor = torch.zeros((remainder_sims,4),dtype=int, device=device) # sim_no, a, b, node_attr_b
-            
+            sim_ab_tensor = torch.zeros((remainder_sims,3),dtype=int, device=device) # sim_no, a, b, node_attr_b
+            sim_ab_tensor[:, 0] = non_convergence_idxs
+            sim_ab_tensor[: , 1] = a_s
         
             bs = (adj_matrix_all[non_convergence_idxs,a_s,:] == 1).nonzero()
-         
-            # print(a_s)
-            # print(non_convergence_idxs)
-            for i, (sim_no, a) in enumerate(zip(non_convergence_idxs, a_s)):         
+        
+            for i, _ in enumerate(sim_ab_tensor):         
                 potential_bs = bs[bs[:,0] == i,1]
                 rand_int = torch.randint(0, potential_bs.size(0), (1,))[0]
                 b = potential_bs[rand_int]
-                ngh_bs =  (adj_matrix_all[sim_no,b,:] == 1).nonzero()
-                ngh_dict[int(sim_no)] = {"ngh_a":potential_bs, "ngh_b":ngh_bs, "a": a, "b": b} 
-                sim_ab_tensor[i] = torch.tensor([sim_no, a, b, node_attrs_all[sim_no][b]])
+                sim_ab_tensor[i, 2] = b
+            
 
                 
-            
             # 2. do strategy events for nodes of all simulations
-            event_struct = non_convergence_idxs[event_s == 0]
-            if event_struct.size(0) != 0: 
-                payoff_tensor = _get_payoff_of_nodes_for_all_sims(ngh_dict, node_attrs_all, payoff_matrix, event_struct) # sim_nos x 3
+            event_strategy = non_convergence_idxs[event_s == 0]
+            if event_strategy.size(0) != 0: 
+                payoff_tensor = _get_payoff_of_nodes_for_all_sims(nodes, node_attrs_all, adj_matrix_all, payoff_matrix, event_strategy, sim_ab_tensor) # sim_nos x 3
                 pr_strategy_replace = _get_pr_of_strategy_replacement(payoff_tensor[:,1], payoff_tensor[:,2], beta_e) # sim_nos X 1
-                prs_str = torch.cat((pr_strategy_replace[:, None], (1-pr_strategy_replace)[:, None]), dim=-1)
+                
+                prs_str = torch.cat((pr_strategy_replace[:, None], (1-pr_strategy_replace)[:,None]), dim=-1)
                 replace_idx = torch.multinomial(prs_str, 1).squeeze(1) # sim_nos X 1
-                sims_replace = event_struct[replace_idx == 0] # replace idxs = 0 , pr_strategy_replace selected
-                mask = torch.isin(sim_ab_tensor[:, 0], sims_replace)
-                sim_ab_tensor_subset = sim_ab_tensor[mask]
+                sims_replace = event_strategy[replace_idx == 0] # replace idxs = 0 , pr_strategy_replace selected
+                sim_ab_tensor_subset = sim_ab_tensor[torch.isin(sim_ab_tensor[:, 0], sims_replace)]
                 a_replace = sim_ab_tensor_subset[:, 1]
-                node_attrs_b_replace = sim_ab_tensor_subset[:, 3]
-                node_attrs_all[sims_replace, a_replace] =  node_attrs_b_replace
+                b_replace = sim_ab_tensor_subset[:, 2]
+                node_attrs_all[sims_replace, a_replace] =  node_attrs_all[sims_replace, b_replace]
             
             # 3. do structural events for nodes of all simulations
-            event_strategy = non_convergence_idxs[event_s == 1]
-            if event_strategy.size(0) != 0:
+            event_struct = non_convergence_idxs[event_s == 1]
+            if event_struct.size(0) != 0:
                 # Get all simulations for event strategy
-                mask = torch.isin(sim_ab_tensor[:, 0], event_strategy)
-                sim_ab_tensor_subset = sim_ab_tensor[mask]
+       
+                sim_ab_tensor_subset = sim_ab_tensor[torch.isin(sim_ab_tensor[:, 0], event_struct)]
                 # Get all simulations where node b is defector
-                sim_ab_tensor_subset = sim_ab_tensor_subset[sim_ab_tensor_subset[:,3] == 0, :]
-                strategy_sims = sim_ab_tensor_subset[:,0]
+                sim_ab_tensor_subset = sim_ab_tensor_subset[node_attrs_all[sim_ab_tensor_subset[:,0], sim_ab_tensor_subset[:,2]] == 0, :]
+                struct_sims = sim_ab_tensor_subset[:,0]
 
-                payoff_tensor = _get_payoff_of_nodes_for_all_sims(ngh_dict, node_attrs_all, payoff_matrix, strategy_sims)
-                pr_adjust_ties = _get_pr_of_adjust_ties(payoff_tensor[:,1], payoff_tensor[:,2], beta_a)
-                prs_adjust = torch.cat((pr_adjust_ties[:, None], (1-pr_adjust_ties)[:, None]), dim=-1)
-                adjust_idx = torch.multinomial(prs_adjust, 1).squeeze(1) # sim_nos X 1
-                sims_adjust = strategy_sims[adjust_idx == 0] # adjust idxs = 0 , pr_strategy_adjust selected
+                payoff_tensor = _get_payoff_of_nodes_for_all_sims(nodes, node_attrs_all, adj_matrix_all, payoff_matrix, struct_sims, sim_ab_tensor_subset)
+                if lr == "rewiring":
+                    pr_adjust_ties = _get_pr_of_adjust_ties(payoff_tensor[:,1], payoff_tensor[:,2], beta_a)
+                    prs_adjust = torch.cat((pr_adjust_ties[:, None], (1-pr_adjust_ties)[:, None]), dim=-1)
+                    adjust_idx = torch.multinomial(prs_adjust, 1).squeeze(1) # sim_nos X 1
+                    sims_adjust = struct_sims[adjust_idx == 0] # adjust idxs = 0 , pr_strategy_adjust selected
+                    sim_ab_tensor_subset = sim_ab_tensor_subset[torch.isin(sim_ab_tensor_subset[:, 0], sims_adjust)]
+                    
+                sims_adjust, a_adjust, b_adjust =   sim_ab_tensor_subset[:, 0],  sim_ab_tensor_subset[: ,1],  sim_ab_tensor_subset[:, 2]
+
+               
                 
+                diff_matrix = adj_matrix_all[sims_adjust, b_adjust] - adj_matrix_all[sims_adjust, a_adjust] # 1 - 0, 1 -1 
+                c_s = (diff_matrix == 1).nonzero()
+           
                 sim_update, a_update, b_update, c_update = [], [], [], []
-                for sim_no in sims_adjust:
-                    sim_no = int(sim_no)
-                    ngh_a, ngh_b = ngh_dict[sim_no]["ngh_a"], ngh_dict[sim_no]["ngh_b"]
-                    a, b = ngh_dict[sim_no]["a"], ngh_dict[sim_no]["b"]
-                    candidates = np.setdiff1d(np.setdiff1d(ngh_b, ngh_a), a) # neighbours of b and not neighbors of a
-                    if len(candidates) != 0:   # "b and a have exclusively different neighbors"
-                        rand_int = torch.randint(0, len(candidates), (1,))[0]
-                        c = candidates[int(rand_int)] # select a candidate to rewire
-                        # adj_matrix_all[sim_no, a, b] = adj_matrix_all[sim_no, b, a] = 0
-                        # adj_matrix_all[sim_no, a, c] = adj_matrix_all[sim_no, c, a] = 1
+                for i, sim_no in enumerate(sims_adjust):
+                    a = a_adjust[i]
+                    potential_cs = c_s[c_s[:,0] == i,1]
+                    potential_cs = potential_cs[potential_cs != a]
+                    potential_cs_size = potential_cs.size(0)
+                   
+                   
+                    if potential_cs_size != 0:   # "b and a have exclusively different neighbors"
+                        if lr == "rewiring" or lr == "nopr_rewiring":
+                           rand_int = torch.randint(0, potential_cs_size, (1,))[0]
+                           c = potential_cs[rand_int] # select a candidate to rewire
+                        elif lr == "common_ngh":
+                            c = get_common_rewiring_candidate(a, potential_cs, adj_matrix_all[sim_no])
+
                         sim_update.append(sim_no)
                         a_update.append(a)
-                        b_update.append(b)
+                        b_update.append(b_adjust[i])
                         c_update.append(c)
 
                 adj_matrix_all[sim_update,a_update,b_update] = adj_matrix_all[sim_update,b_update,a_update] = 0    
                 adj_matrix_all[sim_update,a_update,c_update] = adj_matrix_all[sim_update,c_update,a_update] = 1        
             
 
-        print("time for 1 generation: ", time.time()-st)
-        if g % 1000 == 0:
+        print("T: {}, S: {} . time for 1 generation: {}".format(T,S, time.time()-st))
+        if g % 1000 == 0 and g != 0:
             save_generation_snap(node_attrs_all, adj_matrix_all, g, file_name_snap)
         if g >= (__N_GENERATIONS_ - OFFSET):
             print("Cumulating the frac at generation g: ", g)
             is_convergence_all = get_fracs_at_g(node_attrs_all, non_convergence_idxs, is_convergence_all)
-
-
-
-def __play_game_for_n_simulations(T, S, game,payoff_matrix):
-    print("Running simulations for graph of game:{}, T: {}, S:{}".format(game,T,S))
-    st = time.time()
   
-    
-    folder_name = "./data/lr_{}/game_{}/W_{}_N_{}_z_{}_betae_{}_betaa_{}/".format(lr,game,W,N,z,beta_e,beta_a)
-    create_subfolders(folder_name)
-    # for simulation in sim_generator:
-    #     logging.info("Running Simulation no : {}".format(simulation))
-    #     __play_game_for_g_generations(N, z, beta_e, beta_a, W, T, S, game, lr, simulation,folder_name, payoff_matrix)
-    filename = os.path.join(folder_name,"_T_{}_S_{}_run.csv".format(T,S))
-    if not os.path.exists(filename): 
-           write_csv(filename, __HEADER_, mode="w")
-           done_simulations = list()
-    else:
-        df = read_csv(filename)
-        done_simulations = list(df["run_no"])
 
-    remainder_simulations = list(set(range(__N_INDEPENDENT_SIMULATIONS_)) - set(done_simulations)) 
-    print("!!! len remainder sim:{} T:{}, S:{}".format(len(remainder_simulations),T,S))
-    if len(remainder_simulations) == 0: 
-        return
-   
-    # print("sim generator:")
-    # content = [Parallel(n_jobs=8, verbose=10)(delayed(__play_game_for_g_generations)(N, z, beta_e, beta_a, pr_W, T, S, game, lr, simulation,filename,payoff_matrix) for simulation in sim_generator)]
-    # write_csv(filename, content[0])
-    args = [(T, S, game, simulation,filename,payoff_matrix) for simulation in remainder_simulations]
-    processes =  int(os.environ.get("SLURM_CPUS_ON_NODE", multiprocessing.cpu_count())) - 1
-    print("No of processes: ", processes)
-    # pool = ThreadPool(processes)
-    # pool = Pool(processes)
-    # print("[{}] No of parallel processes for simulations:{} ".format(os.environ["SLURMD_NODENAME"],processes))
-    # results =  pool.starmap(__play_game_for_g_generations, args)
-    write_csv(filename, results)
-    pool.close()
-    pool.join()
-    print("Processed parallel sims job for T:{}, S:{} in time: {}".format(T,S,time.time()-st))
-
-
-def __do_job(T, S, game):
-    st = time.time()
-    payoff_matrix = _get_payoff_matrix(T,S)        
-    __play_game_for_n_simulations(T, S, game, payoff_matrix)
-    print("Time taken for T:{}, S:{}, time: {}".format(T,S,time.time()-st))
 
 def __play_game_per_Tchunk_and_Schunk(T_chunk, S_chunk, game):
+    # try:
     print("Processing chunk T: {}, S:{}".format(T_chunk,S_chunk))
     big_args_list = list()
     folder_name = "./data/lr_{}/game_{}/W_{}_N_{}_z_{}_betae_{}_betaa_{}/".format(lr,game,W,N,z,beta_e,beta_a)
@@ -277,47 +241,33 @@ def __play_game_per_Tchunk_and_Schunk(T_chunk, S_chunk, game):
             remainder_simulations = list(set(range(__N_INDEPENDENT_SIMULATIONS_)) - set(done_simulations)) 
             args = [(T, S, game, remainder_simulations,filename,payoff_matrix)]
             big_args_list.extend(args)
-    processes =  multiprocessing.cpu_count() - 1
-    
-    print("[{}] No of parallel processes:{}  for args: {}".format(os.environ.get("SLURMD_NODENAME",""),processes,len(big_args_list)))
-    pool = Pool(processes)
-    pool.starmap(__play_game_for_g_generations, big_args_list)
-    pool.close()
-    pool.join()
 
-    # for arg in big_args_list:
-    #     st2 = time.time()
-    #     T, S, game, simulations,filename,payoff_matrix = arg
-    #     __play_game_for_g_generations(T, S, game, simulations,filename,payoff_matrix) 
+    # processes =  multiprocessing.cpu_count() 
+    # processes = 8
+    # print("[{}] No of parallel processes:{}  for args: {}".format(os.environ.get("SLURMD_NODENAME",""),processes,len(big_args_list)))
+    # pool = Pool(processes)
+    # pool.starmap(__play_game_for_g_generations, big_args_list)
+    # pool.close()
+    # pool.join()
+
+    for arg in big_args_list:
+        st2 = time.time()
+        T, S, game, simulations,filename,payoff_matrix = arg
+        __play_game_for_g_generations(T, S, game, simulations,filename,payoff_matrix) 
 
 
 
     print("Done Processing chunk T: {}, S:{} at time: {}".format(T_chunk,S_chunk, time.time()-st))
-
+    # except Exception as e:
+    #     print("Error: ", filename, e)
 
 def __play__game(game, T_chunk, S_chunk):
     print("Playing game: ",game)
     st = time.time()
-    # for T_chunk in T_chunks:
-    #      for S_chunk in S_chunks:
-    #         __play_game_per_Tchunk_and_Schunk(N, z, beta_e, beta_a, W, T_chunk, S_chunk, game, lr)
-    # with parallel_backend('threading'):
-    #      [Parallel(n_jobs=T_S_cores)(delayed(__play_game_per_Tchunk_and_Schunk)(T_chunk, S_chunk, game) for T_chunk in T_chunks for S_chunk in S_chunks)]
-  
-    # results = pool.starmap(__play_game_for_g_generations, args)
-
-    
-    __play_game_per_Tchunk_and_Schunk(T_chunk,S_chunk,game)
-    # pool = Pool(4)
-    # pool.starmap(__play_game_per_Tchunk_and_Schunk, args)
-    # pool.close()
-    # pool.join()
-     
+    __play_game_per_Tchunk_and_Schunk(T_chunk,S_chunk,game)     
     print("Done playing game: {} for time: {}".format(game, time.time()-st))
 
         
-
-
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
@@ -332,8 +282,9 @@ if __name__ == "__main__":
     
     args = parser.parse_args()
     game = args.game
-    
+
     T_chunk, S_chunk = chunk_dict[game][args.chunk]["T"], chunk_dict[game][args.chunk]["S"]
+    # T_chunk, S_chunk = [1.0], [-0.1]
     print("Node - [{}], Simulations running on device: {} , and  game: {}, chunk: {}".format(os.environ.get("SLURMD_NODENAME",""),device, game, args.chunk))
     print("Number of Nodes: {}, z: {}".format(N,z))
     print("Beta e: {}, Beta a: {}, W: {}".format(beta_a,beta_e,W))

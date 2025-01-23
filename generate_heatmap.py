@@ -9,6 +9,8 @@ from configs.game_configs import __N_INDEPENDENT_SIMULATIONS_
 
 plot_directory = "./plots/"
 
+lr = "rewiringv2"
+
 def generate_heatmap(W, N, z):
     games = ["sh","sg","pd","other"]
     T_range = [np.round(_,2) for _ in np.arange(0, 2+gap, gap)]
@@ -25,7 +27,7 @@ def generate_heatmap(W, N, z):
 
     for game in games:
         configs = 0
-        folder_name = "./data/lr_rewiring/game_{}/W_{}_N_{}_z_{}_betae_0.005_betaa_0.005".format(game,float(W),N,z)
+        folder_name = "./data/lr_{}/game_{}/W_{}_N_{}_z_{}_betae_0.005_betaa_0.005".format(lr,game,float(W),N,z)
         if not os.path.exists(folder_name): continue
         for file_name in os.listdir(folder_name):
             csv_file = os.path.join(folder_name,file_name)
@@ -46,11 +48,11 @@ def generate_heatmap(W, N, z):
                 
                 
 
-    ax = sns.heatmap(heatmap, cmap=cmap, xticklabels=x_ticks, yticklabels=y_ticks)
+    ax = sns.heatmap(heatmap, cmap=cmap, xticklabels=x_ticks, yticklabels=y_ticks,vmin=0, vmax=1)
     ax.invert_yaxis()
     ax.set(xlabel="T", ylabel="S")
     fig = ax.get_figure()
-    fig.savefig(plot_directory+"trial_W_{}_N_{}_z_{}.pdf".format(W,N,z),bbox_inches='tight')
+    fig.savefig(plot_directory+"trial_lr_{}_W_{}_N_{}_z_{}.pdf".format(lr,W,N,z),bbox_inches='tight')
     ax.clear()
 
 
